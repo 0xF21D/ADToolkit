@@ -185,7 +185,7 @@ $scriptblock = {
   return $report
 }
 
-$jobid = (Invoke-Command -AsJob -ComputerName $domaincontrollers -Credential exterran\rhollin01-da -ScriptBlock $scriptblock -ArgumentList $timestamp).id
+$jobid = (Invoke-Command -AsJob -ComputerName $domaincontrollers -Credential {da creds} -ScriptBlock $scriptblock -ArgumentList $timestamp).id
 
 while ((Get-Job -Id $jobid).State -eq 'Running') 
 {
