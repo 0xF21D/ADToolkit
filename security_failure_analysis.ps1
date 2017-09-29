@@ -1,28 +1,38 @@
-﻿#requires -Modules ActiveDirectory
+<#
+
+    Author: Robert Hollingshead
+    Version: 0.3a
+    Version History: Made to run a little faster. 
+
+    Purpose: Queries domain controllers for events leading to user lockouts.
+    Report is written to HTML but the $scoreboard can be used alone. 
+
+#>
+
+#requires -Modules ActiveDirectory
 #requires -Version 2.0
 
+# Set these variables!
+
 # The OU that your domain controllers reside in.
-$DomainControllerOU = 'ou=Domain Controllers,dc={your},dc={domain}'
+$DomainControllerOU = 'ou=Domain Controllers,dc=your,dc=domain'
 
 # The path of the resulting HTML file. 
-$filepath = '{path} + {filename}.html'
+$filepath = '.\report.html'
 
-# Email server IP addresses.
-$emailserverips = @('10.3.7.143', '10.3.7.144', '10.3.7.145', '10.3.7.146', '10.3.7.147', '10.3.7.148', '10.3.7.149', '10.3.7.150')
+# Leave the stuff below alone
 
 $timestamp = (Get-Date).addminutes(-30)
 $domaincontrollers = (Get-ADComputer -SearchBase $DomainControllerOU -Filter *).name
 
-
-
 $scriptblock = {
   param($timestamp)
 
-  $eventlist = Get-WinEvent @{
-    logname   = 'security';
-    starttime = $($timestamp);
-    keywords  = 4503599627370496;
-  }
+  $eventlist = (Get-WinEvent @{
+      logname   = 'security'
+      starttime = $($timestamp)
+      keywords  = 4503599627370496
+  })
 
   [array]$report = $null
 
@@ -185,7 +195,7 @@ $scriptblock = {
   return $report
 }
 
-$jobid = (Invoke-Command -AsJob -ComputerName $domaincontrollers -Credential {da creds} -ScriptBlock $scriptblock -ArgumentList $timestamp).id
+$jobid = (Invoke-Command -AsJob -ComputerName $domaincontrollers -ScriptBlock $scriptblock -ArgumentList $timestamp).id
 
 while ((Get-Job -Id $jobid).State -eq 'Running') 
 {
@@ -209,18 +219,6 @@ foreach ($event in $eventlist)
     $score = New-Object -TypeName PSObject
     $found = $false
 
-
-    if ($event.ipaddress -in $emailserverips) 
-    { 
-      $event | Add-Member -MemberType NoteProperty -Name Hostname -Value 'Email Server Pool'
-      $event.IPAddress = 'Multiple'
-    } else 
-    {
-      $event | Add-Member -MemberType NoteProperty -Name Hostname -Value 'Unresolved'
-    }
-
-   
-
     if (!$firstrun) 
     {
       foreach ($entry in $scoreboard) 
@@ -237,21 +235,15 @@ foreach ($event in $eventlist)
 
     if (!$found -and !$firstrun) 
     {
-      if ($event.ipaddress -ne 'Multiple') 
-      { 
-        try 
-        {
-          $score | Add-Member -MemberType NoteProperty -Name Hostname -Value $([system.net.dns]::GetHostbyAddress($($event.IPAddress)).HostName)
-        } catch 
-        {
-          $score | Add-Member -MemberType NoteProperty -Name Hostname -Value 'Unresolved'
-        }
-      } else 
+      try 
       {
-        $score | Add-Member -MemberType NoteProperty -Name Hostname -Value $($event.hostname)
+        $score | Add-Member -MemberType NoteProperty -Name Hostname -Value $([system.net.dns]::GetHostbyAddress($($event.IPAddress)).HostName)
       }
-
-
+      catch 
+      {
+        $score | Add-Member -MemberType NoteProperty -Name Hostname -Value 'Unresolved'
+      }
+     
 
       $score | Add-Member -MemberType NoteProperty -Name IPAddress -Value $($event.ipaddress)
       $score | Add-Member -MemberType NoteProperty -Name SamAccountName -Value $($event.TargetUserName)
@@ -264,21 +256,18 @@ foreach ($event in $eventlist)
 
     if ($firstrun) 
     {
-      if ($event.ipaddress -ne 'Multiple') 
-      { 
-        try 
-        {
-          $score | Add-Member -MemberType NoteProperty -Name Hostname -Value $([system.net.dns]::GetHostbyAddress($($event.IPAddress)).HostName)
-        } catch 
-        {
-          $score | Add-Member -MemberType NoteProperty -Name Hostname -Value 'Unresolved'
-        }
-      } else 
+      try 
       {
-        $score | Add-Member -MemberType NoteProperty -Name Hostname -Value $($event.hostname)
+        $score | Add-Member -MemberType NoteProperty -Name Hostname -Value $([system.net.dns]::GetHostbyAddress($($event.IPAddress)).HostName)
       }
+      catch 
+      {
+        $score | Add-Member -MemberType NoteProperty -Name Hostname -Value 'Unresolved'
+      }
+      
+
       $score | Add-Member -MemberType NoteProperty -Name IPAddress -Value $($event.ipaddress)
-      $score | Add-Member -MemberType NoteProperty -Name SamAccountName -Value $($event.TargetUserName)
+      $score | Add-Member -MemberType NoteProperty -Name SamAccountName -Value $((($event.TargetUserName).replace(':',' ')).replace('=',' '))
       $score | Add-Member -MemberType NoteProperty -Name FailureDescription -Value $($event.FailureDescription)
       $score | Add-Member -MemberType NoteProperty -Name FailureReason -Value $($event.FailureReason)
       $score | Add-Member -MemberType NoteProperty -Name EntryCount -Value 1
